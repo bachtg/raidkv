@@ -1,0 +1,7 @@
+# Build output
+/bin/
+
+# Test and profiling artifacts
+*.test
+*.out
+*.prof

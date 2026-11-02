@@ -1,0 +1,11 @@
+# Generates Go code next to each .proto file: `make proto`.
+# Plugins run through `go tool`, at the versions pinned in go.mod,
+# so everyone (and CI) generates identical code.
+version: v2
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: api
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: api
+    opt: paths=source_relative

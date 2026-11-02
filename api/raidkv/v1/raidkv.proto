@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package raidkv.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/bachtg/raidkv/api/raidkv/v1;raidkvv1";
+
+
+service KVService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+message GetRequest {
+  bytes key = 1 [(buf.validate.field).bytes = {
+    min_len: 1
+    max_len: 10000
+  }];
+}
+
+message GetResponse {
+  bytes value = 1;
+}
+
+message PutRequest {
+  bytes key = 1 [(buf.validate.field).bytes = {
+    min_len: 1
+    max_len: 10000
+  }];
+  bytes value = 2;
+}
+
+message PutResponse {}
+
+message DeleteRequest {
+  bytes key = 1 [(buf.validate.field).bytes = {
+    min_len: 1
+    max_len: 10000
+  }];
+}
+
+message DeleteResponse {}
