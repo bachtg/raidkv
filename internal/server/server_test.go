@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -100,8 +101,7 @@ func TestEmptyValueRoundTrips(t *testing.T) {
 	}
 }
 
-// maxKeyLen must match max_len on the key fields in raidkv.proto.
-const maxKeyLen = 10000
+const maxKeyLen = engine.MaxKeyLength
 
 func TestInvalidKeyIsInvalidArgument(t *testing.T) {
 	c := newClient(t)
@@ -160,6 +160,20 @@ func TestEngineErrorIsInternalAndHidden(t *testing.T) {
 		}
 		if strings.Contains(st.Message(), "wal-000042") {
 			t.Errorf("%s: internal error leaked to client: %q", name, st.Message())
+		}
+	}
+}
+
+func TestEngineInvalidArgumentIsInvalidArgument(t *testing.T) {
+	c := newClientWith(t, failingEngine{err: fmt.Errorf("%w: value too long", engine.ErrInvalidArgument)})
+
+	calls := map[string]func() error{
+		"Put":    func() error { return c.Put(ctx(t), []byte("k"), []byte("v")) },
+		"Delete": func() error { return c.Delete(ctx(t), []byte("k")) },
+	}
+	for name, call := range calls {
+		if code := status.Code(call()); code != codes.InvalidArgument {
+			t.Errorf("%s: code %v, want InvalidArgument", name, code)
 		}
 	}
 }

@@ -10,7 +10,7 @@ type memEngine struct {
 	mu      sync.RWMutex
 }
 
-func NewMemEngine() *memEngine {
+func NewMemEngine() Engine {
 	return &memEngine{
 		storage: make(map[string][]byte),
 	}
@@ -29,6 +29,10 @@ func (e *memEngine) Get(key []byte) ([]byte, error) {
 }
 
 func (e *memEngine) Put(key, value []byte) error {
+	if err := validate(key, value); err != nil {
+		return err
+	}
+
 	clonedValue := bytes.Clone(value)
 
 	e.mu.Lock()
@@ -40,6 +44,10 @@ func (e *memEngine) Put(key, value []byte) error {
 }
 
 func (e *memEngine) Delete(key []byte) error {
+	if err := validate(key, nil); err != nil {
+		return err
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

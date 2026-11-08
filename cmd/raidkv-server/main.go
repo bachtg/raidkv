@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,22 +23,31 @@ const shutdownTimeout = 10 * time.Second
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7000", "address to listen on")
+	engineKind := flag.String("engine", "mem", "storage engine: mem (lost on restart) or wal (durable)")
+	dataDir := flag.String("data-dir", "data", "directory for the wal engine's files")
 	flag.Parse()
 
-	if err := run(*addr); err != nil {
+	if err := run(*addr, *engineKind, *dataDir); err != nil {
 		slog.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr string) error {
+func run(addr, engineKind, dataDir string) error {
+	eng, release, err := openEngine(engineKind, dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := release(); err != nil {
+			slog.Error("close engine", "err", err)
+		}
+	}()
+
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-
-	eng := engine.NewMemEngine()
-	defer eng.Close()
 
 	g, err := server.NewGRPCServer(eng)
 	if err != nil {
@@ -58,6 +68,39 @@ func run(addr string) error {
 		return err
 	}
 	return nil
+}
+
+// openEngine returns the engine and a function that closes it and releases
+// anything it holds, such as the data dir lock.
+func openEngine(kind, dataDir string) (engine.Engine, func() error, error) {
+	switch kind {
+	case "mem":
+		eng := engine.NewMemEngine()
+		return eng, eng.Close, nil
+
+	case "wal":
+		if err := os.MkdirAll(dataDir, 0o755); err != nil {
+			return nil, nil, fmt.Errorf("create data dir: %w", err)
+		}
+		unlock, err := lockDataDir(dataDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		path := filepath.Join(dataDir, "wal.log")
+		eng, err := engine.NewWalEngine(path)
+		if err != nil {
+			_ = unlock()
+			return nil, nil, fmt.Errorf("open wal %s: %w", path, err)
+		}
+		slog.Info("opened wal", "path", path)
+		release := func() error {
+			return errors.Join(eng.Close(), unlock())
+		}
+		return eng, release, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unknown engine %q: want mem or wal", kind)
+	}
 }
 
 // shutdown lets in-flight requests finish, then cuts off whatever is left

@@ -37,6 +37,7 @@ func Run(t *testing.T, newEngine Factory) {
 	t.Run("Concurrent", func(t *testing.T) { testConcurrent(t, open(t)) })
 	t.Run("ConcurrentSameKey", func(t *testing.T) { testConcurrentSameKey(t, open(t)) })
 	t.Run("Oracle", func(t *testing.T) { testOracle(t, open(t)) })
+	t.Run("Limits", func(t *testing.T) { testLimits(t, open(t)) })
 }
 
 // --- helpers ---
@@ -235,6 +236,36 @@ func testConcurrentSameKey(t *testing.T, e engine.Engine) {
 		}()
 	}
 	wg.Wait()
+}
+
+// Keys and values at the limit are accepted; one byte more is rejected with
+// ErrInvalidArgument and nothing is stored.
+func testLimits(t *testing.T, e engine.Engine) {
+	maxKey := bytes.Repeat([]byte("k"), engine.MaxKeyLength)
+	longKey := bytes.Repeat([]byte("k"), engine.MaxKeyLength+1)
+	maxValue := bytes.Repeat([]byte("v"), engine.MaxValueLength)
+	longValue := bytes.Repeat([]byte("v"), engine.MaxValueLength+1)
+
+	if err := e.Put(maxKey, maxValue); err != nil {
+		t.Fatalf("Put with max-length key and value: %v", err)
+	}
+	if got, err := e.Get(maxKey); err != nil || !bytes.Equal(got, maxValue) {
+		t.Fatalf("Get max-length key: len %d, %v; want len %d", len(got), err, len(maxValue))
+	}
+	if err := e.Delete(maxKey); err != nil {
+		t.Fatalf("Delete max-length key: %v", err)
+	}
+
+	if err := e.Put(longKey, []byte("v")); !errors.Is(err, engine.ErrInvalidArgument) {
+		t.Fatalf("Put with %d-byte key: %v, want ErrInvalidArgument", len(longKey), err)
+	}
+	if err := e.Delete(longKey); !errors.Is(err, engine.ErrInvalidArgument) {
+		t.Fatalf("Delete with %d-byte key: %v, want ErrInvalidArgument", len(longKey), err)
+	}
+	if err := e.Put([]byte("k"), longValue); !errors.Is(err, engine.ErrInvalidArgument) {
+		t.Fatalf("Put with %d-byte value: %v, want ErrInvalidArgument", len(longValue), err)
+	}
+	wantNotFound(t, e, "k")
 }
 
 func testOracle(t *testing.T, e engine.Engine) {

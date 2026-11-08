@@ -1,6 +1,9 @@
 # Build output
 /bin/
 
+# Default data dir of raidkv-server -engine wal
+/data/
+
 # Test and profiling artifacts
 *.test
 *.out
