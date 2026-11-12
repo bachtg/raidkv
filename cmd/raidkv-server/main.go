@@ -93,13 +93,12 @@ func openEngine(kind, dataDir string) (engine.Engine, func() error, error) {
 			return nil, nil, err
 		}
 
-		path := filepath.Join(dataDir, "wal.log")
-		eng, err := engine.NewWalEngine(path)
+		eng, err := engine.NewWALEngine(dataDir)
 		if err != nil {
 			_ = unlock()
-			return nil, nil, fmt.Errorf("open wal %s: %w", path, err)
+			return nil, nil, fmt.Errorf("open wal in %s: %w", dataDir, err)
 		}
-		slog.Info("opened wal", "path", path)
+		slog.Info("opened wal", "dir", dataDir)
 		release := func() error {
 			return errors.Join(eng.Close(), unlock())
 		}

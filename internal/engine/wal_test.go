@@ -12,14 +12,14 @@ import (
 
 func TestWALEngine(t *testing.T) {
 	enginetest.Run(t, func(t *testing.T) engine.Engine {
-		return openWAL(t, filepath.Join(t.TempDir(), "wal.log"))
+		return openWAL(t, t.TempDir())
 	})
 }
 
 func TestWALReopen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "wal.log")
+	dir := t.TempDir()
 
-	e := openWAL(t, path)
+	e := openWAL(t, dir)
 	put(t, e, "a", "1")
 	put(t, e, "b", "2")
 	put(t, e, "gone", "x")
@@ -28,11 +28,11 @@ func TestWALReopen(t *testing.T) {
 	}
 	closeWAL(t, e)
 
-	e = openWAL(t, path)
+	e = openWAL(t, dir)
 	put(t, e, "c", "3")
 	closeWAL(t, e)
 
-	e = openWAL(t, path)
+	e = openWAL(t, dir)
 	defer closeWAL(t, e)
 	wantValue(t, e, "a", "1")
 	wantValue(t, e, "b", "2")
@@ -41,7 +41,7 @@ func TestWALReopen(t *testing.T) {
 }
 
 func TestWALWriteAfterClose(t *testing.T) {
-	e := openWAL(t, filepath.Join(t.TempDir(), "wal.log"))
+	e := openWAL(t, t.TempDir())
 	put(t, e, "a", "1")
 	closeWAL(t, e)
 
@@ -62,12 +62,12 @@ func TestWALWriteAfterClose(t *testing.T) {
 func TestWALTornLastRecord(t *testing.T) {
 	_, bStart, size := writeAB(t)
 	for cut := int64(1); cut <= size-bStart; cut++ {
-		path, _, _ := writeAB(t)
-		if err := os.Truncate(path, size-cut); err != nil {
+		dir, _, _ := writeAB(t)
+		if err := os.Truncate(walFile(dir), size-cut); err != nil {
 			t.Fatal(err)
 		}
 
-		e, err := engine.NewWalEngine(path)
+		e, err := engine.NewWALEngine(dir)
 		if err != nil {
 			t.Fatalf("cut %d: reopen: %v", cut, err)
 		}
@@ -76,7 +76,7 @@ func TestWALTornLastRecord(t *testing.T) {
 		put(t, e, "c", "3")
 		closeWAL(t, e)
 
-		e, err = engine.NewWalEngine(path)
+		e, err = engine.NewWALEngine(dir)
 		if err != nil {
 			t.Fatalf("cut %d: reopen after append: %v", cut, err)
 		}
@@ -113,25 +113,25 @@ func TestWALCorruption(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path, bStart, _ := writeAB(t)
-			flipByte(t, path, tt.offset(bStart), tt.value)
+			dir, bStart, _ := writeAB(t)
+			flipByte(t, walFile(dir), tt.offset(bStart), tt.value)
 
-			e, err := engine.NewWalEngine(path)
+			e, err := engine.NewWALEngine(dir)
 			if tt.wantFail {
 				if !errors.Is(err, engine.ErrCorruptWAL) {
-					t.Fatalf("NewWalEngine err = %v, want ErrCorruptWAL", err)
+					t.Fatalf("NewWALEngine err = %v, want ErrCorruptWAL", err)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("NewWalEngine: %v (a corrupt last record must be dropped, not fail)", err)
+				t.Fatalf("NewWALEngine: %v (a corrupt last record must be dropped, not fail)", err)
 			}
 			wantValue(t, e, "a", "1")
 			wantMissing(t, e, "b")
 			put(t, e, "c", "3")
 			closeWAL(t, e)
 
-			e = openWAL(t, path)
+			e = openWAL(t, dir)
 			defer closeWAL(t, e)
 			wantValue(t, e, "a", "1")
 			wantMissing(t, e, "b")
@@ -140,24 +140,26 @@ func TestWALCorruption(t *testing.T) {
 	}
 }
 
-// writeAB writes Put(a,1) then Put(b,xyz) and returns the file path, the
-// offset where record b starts, and the file size.
-func writeAB(t *testing.T) (path string, bStart, size int64) {
+// writeAB writes Put(a,1), Put(b,xyz) and returns the dir, where b starts,
+// and the log size.
+func writeAB(t *testing.T) (dir string, bStart, size int64) {
 	t.Helper()
-	path = filepath.Join(t.TempDir(), "wal.log")
-	e := openWAL(t, path)
+	dir = t.TempDir()
+	e := openWAL(t, dir)
 	put(t, e, "a", "1")
-	bStart = fileSize(t, path)
+	bStart = fileSize(t, walFile(dir))
 	put(t, e, "b", "xyz")
 	closeWAL(t, e)
-	return path, bStart, fileSize(t, path)
+	return dir, bStart, fileSize(t, walFile(dir))
 }
 
-func openWAL(t *testing.T, path string) engine.Engine {
+func walFile(dir string) string { return filepath.Join(dir, "wal.log") }
+
+func openWAL(t *testing.T, dir string) engine.Engine {
 	t.Helper()
-	e, err := engine.NewWalEngine(path)
+	e, err := engine.NewWALEngine(dir)
 	if err != nil {
-		t.Fatalf("NewWalEngine: %v", err)
+		t.Fatalf("NewWALEngine: %v", err)
 	}
 	return e
 }

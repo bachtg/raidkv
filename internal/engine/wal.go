@@ -31,7 +31,12 @@ type walEngine struct {
 	closed  bool
 }
 
-func NewWalEngine(path string) (Engine, error) {
+const walFileName = "wal.log"
+
+// NewWALEngine opens dir/wal.log, creating it if it does not exist.
+func NewWALEngine(dir string) (Engine, error) {
+	path := filepath.Join(dir, walFileName)
+
 	// O_CREATE: create new file if not exist
 	// O_RDWR: open for read and write
 	// 0644: read/write permission
@@ -41,7 +46,7 @@ func NewWalEngine(path string) (Engine, error) {
 	}
 
 	// The file may have just been created; make its name durable too.
-	if err := SyncDir(filepath.Dir(path)); err != nil {
+	if err := SyncDir(dir); err != nil {
 		file.Close()
 		return nil, fmt.Errorf("wal: %w", err)
 	}
