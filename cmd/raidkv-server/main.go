@@ -82,10 +82,17 @@ func openEngine(kind, dataDir string) (engine.Engine, func() error, error) {
 		if err := os.MkdirAll(dataDir, 0o755); err != nil {
 			return nil, nil, fmt.Errorf("create data dir: %w", err)
 		}
+
+		// MkdirAll may have just created dataDir; make its name durable too.
+		if err := engine.SyncDir(filepath.Dir(dataDir)); err != nil {
+			return nil, nil, fmt.Errorf("sync parent of data dir: %w", err)
+		}
+
 		unlock, err := lockDataDir(dataDir)
 		if err != nil {
 			return nil, nil, err
 		}
+
 		path := filepath.Join(dataDir, "wal.log")
 		eng, err := engine.NewWalEngine(path)
 		if err != nil {

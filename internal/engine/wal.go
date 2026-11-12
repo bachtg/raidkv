@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -37,6 +38,12 @@ func NewWalEngine(path string) (Engine, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
+	}
+
+	// The file may have just been created; make its name durable too.
+	if err := SyncDir(filepath.Dir(path)); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("wal: %w", err)
 	}
 
 	fileStat, err := file.Stat()
