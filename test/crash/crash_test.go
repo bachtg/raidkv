@@ -288,6 +288,11 @@ func startServer(t *testing.T, dir string) *server {
 		_ = s.cmd.Wait()
 		close(s.exited)
 	}()
+	// A failed test never reaches kill.
+	t.Cleanup(func() {
+		_ = s.cmd.Process.Kill()
+		<-s.exited
+	})
 
 	c, err := client.Dial(s.addr)
 	if err != nil {
