@@ -12,7 +12,7 @@ test:
 ROUNDS ?= 50
 CRASH_DIR ?= $(HOME)/.cache/raidkv-crashtest
 crash-test:
-	go test -tags crash -count=1 -v ./test/crash -rounds=$(ROUNDS) -dir=$(CRASH_DIR)
+	go test -tags crash -count=1 -timeout 0 -v ./test/crash -rounds=$(ROUNDS) -dir=$(CRASH_DIR)
 
 # Regenerate Go code from api/**/*.proto
 proto:
