@@ -25,16 +25,17 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7000", "address to listen on")
 	engineKind := flag.String("engine", "mem", "storage engine: mem (lost on restart) or wal (durable)")
 	dataDir := flag.String("data-dir", "data", "directory for the wal engine's files")
+	snapshotThreshold := flag.Int64("snapshot-threshold", 64<<20, "wal size in bytes that triggers a snapshot")
 	flag.Parse()
 
-	if err := run(*addr, *engineKind, *dataDir); err != nil {
+	if err := run(*addr, *engineKind, *dataDir, *snapshotThreshold); err != nil {
 		slog.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, engineKind, dataDir string) error {
-	eng, release, err := openEngine(engineKind, dataDir)
+func run(addr, engineKind, dataDir string, snapshotThreshold int64) error {
+	eng, release, err := openEngine(engineKind, dataDir, snapshotThreshold)
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func run(addr, engineKind, dataDir string) error {
 
 // openEngine returns the engine and a function that closes it and releases
 // anything it holds, such as the data dir lock.
-func openEngine(kind, dataDir string) (engine.Engine, func() error, error) {
+func openEngine(kind, dataDir string, snapshotThreshold int64) (engine.Engine, func() error, error) {
 	switch kind {
 	case "mem":
 		eng := engine.NewMemEngine()
@@ -93,7 +94,7 @@ func openEngine(kind, dataDir string) (engine.Engine, func() error, error) {
 			return nil, nil, err
 		}
 
-		eng, err := engine.NewWALEngine(dataDir)
+		eng, err := engine.NewWALEngine(dataDir, snapshotThreshold)
 		if err != nil {
 			_ = unlock()
 			return nil, nil, fmt.Errorf("open wal in %s: %w", dataDir, err)

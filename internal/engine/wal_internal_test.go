@@ -14,7 +14,8 @@ func TestReplayShortReads(t *testing.T) {
 	log = append(log, encodeRecord(operationPut, []byte("b"), []byte("xyz"))...)
 	log = append(log, encodeRecord(operationDel, []byte("a"), nil)...)
 
-	store, offset, err := replayRecords(iotest.OneByteReader(bytes.NewReader(log)), int64(len(log)))
+	store := make(map[string][]byte)
+	offset, err := replayRecords(store, iotest.OneByteReader(bytes.NewReader(log)), int64(len(log)), false)
 	if err != nil {
 		t.Fatalf("replayRecords: %v", err)
 	}

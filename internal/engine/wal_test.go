@@ -2,9 +2,11 @@ package engine_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bachtg/raidkv/internal/engine"
 	"github.com/bachtg/raidkv/internal/engine/enginetest"
@@ -14,6 +16,62 @@ func TestWALEngine(t *testing.T) {
 	enginetest.Run(t, func(t *testing.T) engine.Engine {
 		return openWAL(t, t.TempDir())
 	})
+}
+
+// The whole conformance suite again, with a snapshot every few writes.
+func TestWALEngineWithSnapshots(t *testing.T) {
+	enginetest.Run(t, func(t *testing.T) engine.Engine {
+		e, err := engine.NewWALEngine(t.TempDir(), 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	})
+}
+
+func TestWALSnapshotTrigger(t *testing.T) {
+	dir := t.TempDir()
+	e, err := engine.NewWALEngine(dir, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := make(map[string]string)
+	for i := range 100 {
+		k, v := fmt.Sprintf("k%d", i%20), fmt.Sprintf("v%d", i)
+		put(t, e, k, v)
+		want[k] = v
+		if i%7 == 0 {
+			if err := e.Delete([]byte(k)); err != nil {
+				t.Fatal(err)
+			}
+			delete(want, k)
+		}
+	}
+
+	// The snapshot runs in the background; wait for one to land.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "snapshot.log")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no snapshot after 5s")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	closeWAL(t, e)
+
+	e = openWAL(t, dir)
+	defer closeWAL(t, e)
+	for i := range 20 {
+		k := fmt.Sprintf("k%d", i)
+		if v, ok := want[k]; ok {
+			wantValue(t, e, k, v)
+		} else {
+			wantMissing(t, e, k)
+		}
+	}
 }
 
 func TestWALReopen(t *testing.T) {
@@ -67,7 +125,7 @@ func TestWALTornLastRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		e, err := engine.NewWALEngine(dir)
+		e, err := engine.NewWALEngine(dir, noSnapshot)
 		if err != nil {
 			t.Fatalf("cut %d: reopen: %v", cut, err)
 		}
@@ -76,7 +134,7 @@ func TestWALTornLastRecord(t *testing.T) {
 		put(t, e, "c", "3")
 		closeWAL(t, e)
 
-		e, err = engine.NewWALEngine(dir)
+		e, err = engine.NewWALEngine(dir, noSnapshot)
 		if err != nil {
 			t.Fatalf("cut %d: reopen after append: %v", cut, err)
 		}
@@ -116,7 +174,7 @@ func TestWALCorruption(t *testing.T) {
 			dir, bStart, _ := writeAB(t)
 			flipByte(t, walFile(dir), tt.offset(bStart), tt.value)
 
-			e, err := engine.NewWALEngine(dir)
+			e, err := engine.NewWALEngine(dir, noSnapshot)
 			if tt.wantFail {
 				if !errors.Is(err, engine.ErrCorruptWAL) {
 					t.Fatalf("NewWALEngine err = %v, want ErrCorruptWAL", err)
@@ -153,11 +211,14 @@ func writeAB(t *testing.T) (dir string, bStart, size int64) {
 	return dir, bStart, fileSize(t, walFile(dir))
 }
 
+// noSnapshot keeps snapshots out of tests that only look at the wal.
+const noSnapshot = 1 << 40
+
 func walFile(dir string) string { return filepath.Join(dir, "wal.log") }
 
 func openWAL(t *testing.T, dir string) engine.Engine {
 	t.Helper()
-	e, err := engine.NewWALEngine(dir)
+	e, err := engine.NewWALEngine(dir, noSnapshot)
 	if err != nil {
 		t.Fatalf("NewWALEngine: %v", err)
 	}

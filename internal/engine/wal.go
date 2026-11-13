@@ -15,6 +15,7 @@ import (
 const (
 	operationPut byte = 1
 	operationDel byte = 2
+	operationEnd byte = 3
 )
 
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
@@ -25,61 +26,118 @@ var ErrCorruptWAL = errors.New("wal: corrupt record")
 // principle: before applying any changes to the main data store, write the changes to append-only log.
 // data format: [checksum][operation][key_len][key][value_len][value]
 type walEngine struct {
+	dir     string
 	file    *os.File
 	storage map[string][]byte
 	mu      sync.RWMutex
 	closed  bool
+	walSize int64
+
+	snapshotThreshold int64
+	snapshotting      bool
 }
 
-const walFileName = "wal.log"
+const (
+	walFileName      = "wal.log"
+	snapshotFileName = "snapshot.log"
+)
 
-// NewWALEngine opens dir/wal.log, creating it if it does not exist.
-func NewWALEngine(dir string) (Engine, error) {
-	path := filepath.Join(dir, walFileName)
+// NewWALEngine opens the engine in dir and snapshots once wal.log reaches
+// snapshotThreshold bytes.
+func NewWALEngine(dir string, snapshotThreshold int64) (Engine, error) {
+	if snapshotThreshold <= 0 {
+		return nil, fmt.Errorf("%w: snapshot threshold must be positive, got %d", ErrInvalidArgument, snapshotThreshold)
+	}
 
-	// O_CREATE: create new file if not exist
-	// O_RDWR: open for read and write
-	// 0644: read/write permission
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
+	engine := &walEngine{
+		dir:               dir,
+		storage:           make(map[string][]byte),
+		snapshotThreshold: snapshotThreshold,
+	}
+
+	// Left by a snapshot that never reached the rename.
+	err := os.Remove(filepath.Join(dir, snapshotTempFileName))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	err = engine.loadDataFromFile(snapshotFileName)
 	if err != nil {
 		return nil, err
 	}
 
+	err = engine.loadDataFromFile(walFileName)
+	if err != nil {
+		return nil, err
+	}
+
+	return engine, nil
+}
+
+func (e *walEngine) loadDataFromFile(fileName string) error {
+	path := filepath.Join(e.dir, fileName)
+	isSnapshot := fileName == snapshotFileName
+
+	// O_CREATE: create new file if not exist
+	// O_RDWR: open for read and write
+	// 0644: read/write permission
+	flags := os.O_CREATE | os.O_RDWR | os.O_APPEND
+	if isSnapshot {
+		// Only snapshot() creates it: missing is fine, empty is damage.
+		flags = os.O_RDONLY
+	}
+	file, err := os.OpenFile(path, flags, 0o644)
+	if isSnapshot && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
 	// The file may have just been created; make its name durable too.
-	if err := SyncDir(dir); err != nil {
+	if err = SyncDir(e.dir); err != nil {
 		file.Close()
-		return nil, fmt.Errorf("wal: %w", err)
+		return fmt.Errorf("wal: %w", err)
 	}
 
 	fileStat, err := file.Stat()
 	if err != nil {
 		file.Close()
-		return nil, err
+		return err
 	}
 
-	store, offset, err := replayRecords(file, fileStat.Size())
+	offset, err := replayRecords(e.storage, file, fileStat.Size(), isSnapshot)
 	if err != nil {
 		file.Close()
-		return nil, err
+		return fmt.Errorf("%s: %w", fileName, err)
 	}
+
+	if isSnapshot {
+		return file.Close()
+	}
+
+	e.file = file
+	e.walSize = offset
 
 	err = file.Truncate(offset)
 	if err != nil {
 		file.Close()
-		return nil, err
+		return err
 	}
 
-	return &walEngine{
-		file:    file,
-		storage: store,
-	}, nil
+	return nil
 }
 
-func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, error) {
-	var (
-		store  = make(map[string][]byte)
-		offset = int64(0)
-	)
+func replayRecords(store map[string][]byte, reader io.Reader, fileSize int64, snapshot bool) (int64, error) {
+	offset := int64(0)
+
+	// A torn wal tail was never acked, so drop it; a short snapshot is damage.
+	cut := func() (int64, error) {
+		if snapshot {
+			return 0, fmt.Errorf("%w at offset %d: snapshot ends without its end record", ErrCorruptWAL, offset)
+		}
+		return offset, nil
+	}
 
 	for {
 		var (
@@ -93,20 +151,18 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		// read first 4 bytes to extract record checksum
 		if _, err := io.ReadFull(reader, checksum); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				break
+				return cut()
 			}
-
-			return nil, 0, err
+			return 0, err
 		}
 		recordLength += 4
 
 		// read next byte to extract operation
 		if _, err := io.ReadFull(reader, op); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				break
+				return cut()
 			}
-
-			return nil, 0, err
+			return 0, err
 		}
 		fullRecord = append(fullRecord, op...)
 
@@ -115,9 +171,9 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		// read next 4 bytes to extract key length
 		if _, err := io.ReadFull(reader, leng); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return store, offset, nil
+				return cut()
 			}
-			return nil, 0, err
+			return 0, err
 		}
 
 		recordLength += 4
@@ -125,7 +181,7 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		keyLen := binary.BigEndian.Uint32(leng)
 
 		if keyLen > MaxKeyLength {
-			return nil, 0, fmt.Errorf("%w at offset %d: key length %d exceeds limit %d", ErrCorruptWAL, offset, keyLen, MaxKeyLength)
+			return 0, fmt.Errorf("%w at offset %d: key length %d exceeds limit %d", ErrCorruptWAL, offset, keyLen, MaxKeyLength)
 		}
 		fullRecord = append(fullRecord, leng...)
 		key := make([]byte, keyLen)
@@ -133,9 +189,9 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		// read next keyLen bytes to extract key
 		if _, err := io.ReadFull(reader, key); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return store, offset, nil
+				return cut()
 			}
-			return nil, 0, err
+			return 0, err
 		}
 		fullRecord = append(fullRecord, key...)
 
@@ -144,9 +200,9 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		// read next 4 bytes to extract value length
 		if _, err := io.ReadFull(reader, leng); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return store, offset, nil
+				return cut()
 			}
-			return nil, 0, err
+			return 0, err
 		}
 
 		recordLength += 4
@@ -154,7 +210,7 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		valueLen := binary.BigEndian.Uint32(leng)
 
 		if valueLen > MaxValueLength {
-			return nil, 0, fmt.Errorf("%w at offset %d: value length %d exceeds limit %d", ErrCorruptWAL, offset, valueLen, MaxValueLength)
+			return 0, fmt.Errorf("%w at offset %d: value length %d exceeds limit %d", ErrCorruptWAL, offset, valueLen, MaxValueLength)
 		}
 
 		fullRecord = append(fullRecord, leng...)
@@ -164,9 +220,9 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		// read next valueLen bytes to extract value
 		if _, err := io.ReadFull(reader, value); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return store, offset, nil
+				return cut()
 			}
-			return nil, 0, err
+			return 0, err
 		}
 
 		fullRecord = append(fullRecord, value...)
@@ -177,10 +233,10 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 		readChecksum := crc32.Checksum(fullRecord, crcTable)
 
 		if storedChecksum != readChecksum {
-			if offset+int64(recordLength) < fileSize {
-				return nil, 0, fmt.Errorf("%w at offset %d: checksum mismatch (stored %#08x, computed %#08x)", ErrCorruptWAL, offset, storedChecksum, readChecksum)
+			if snapshot || offset+int64(recordLength) < fileSize {
+				return 0, fmt.Errorf("%w at offset %d: checksum mismatch (stored %#08x, computed %#08x)", ErrCorruptWAL, offset, storedChecksum, readChecksum)
 			}
-			return store, offset, nil
+			return offset, nil
 		}
 
 		switch op[0] {
@@ -188,14 +244,27 @@ func replayRecords(reader io.Reader, fileSize int64) (map[string][]byte, int64, 
 			store[string(key)] = value
 		case operationDel:
 			delete(store, string(key))
+		case operationEnd:
+			if !snapshot {
+				return 0, fmt.Errorf("%w at offset %d: unknown operation %#02x", ErrCorruptWAL, offset, op[0])
+			}
+
+			if valueLen != 8 {
+				return 0, fmt.Errorf("%w at offset %d: end record holds %d bytes, want 8", ErrCorruptWAL, offset, valueLen)
+			}
+			if size := binary.BigEndian.Uint64(value); size != uint64(offset) {
+				return 0, fmt.Errorf("%w at offset %d: end record says the data is %d bytes", ErrCorruptWAL, offset, size)
+			}
+			if end := offset + int64(recordLength); end != fileSize {
+				return 0, fmt.Errorf("%w at offset %d: %d bytes after the end record", ErrCorruptWAL, offset, fileSize-end)
+			}
+			return offset, nil
 		default:
-			return nil, 0, fmt.Errorf("%w at offset %d: unknown operation %#02x", ErrCorruptWAL, offset, op[0])
+			return 0, fmt.Errorf("%w at offset %d: unknown operation %#02x", ErrCorruptWAL, offset, op[0])
 		}
 
 		offset += int64(recordLength)
 	}
-
-	return store, offset, nil
 }
 
 func (e *walEngine) Get(key []byte) ([]byte, error) {
@@ -237,6 +306,13 @@ func (e *walEngine) Put(key, value []byte) error {
 	}
 
 	e.storage[string(key)] = clonedValue
+
+	e.walSize += int64(len(encodedRecord))
+
+	if e.walSize >= e.snapshotThreshold && !e.snapshotting {
+		e.snapshotting = true
+		go e.snapshot()
+	}
 
 	return nil
 }
@@ -288,6 +364,13 @@ func (e *walEngine) Delete(key []byte) error {
 	}
 
 	delete(e.storage, string(key))
+
+	e.walSize += int64(len(encodedRecord))
+
+	if e.walSize >= e.snapshotThreshold && !e.snapshotting {
+		e.snapshotting = true
+		go e.snapshot()
+	}
 
 	return nil
 }

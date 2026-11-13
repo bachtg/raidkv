@@ -24,11 +24,12 @@ import (
 )
 
 var (
-	rounds  = flag.Int("rounds", 20, "number of kill -9 rounds")
-	clients = flag.Int("clients", 8, "concurrent clients")
-	keys    = flag.Int("keys", 64, "number of keys, split between clients")
-	baseDir = flag.String("dir", "", "parent of the data dir; use a real disk, not tmpfs (default: a temp dir)")
-	seed    = flag.Int64("seed", 0, "random seed (default: time based)")
+	rounds        = flag.Int("rounds", 20, "number of kill -9 rounds")
+	clients       = flag.Int("clients", 8, "concurrent clients")
+	keys          = flag.Int("keys", 64, "number of keys, split between clients")
+	baseDir       = flag.String("dir", "", "parent of the data dir; use a real disk, not tmpfs (default: a temp dir)")
+	seed          = flag.Int64("seed", 0, "random seed (default: time based)")
+	snapThreshold = flag.Int64("snapshot-threshold", 4096, "server -snapshot-threshold; small so kills hit snapshots")
 )
 
 var serverBin string
@@ -279,7 +280,8 @@ func (s *server) log() string {
 func startServer(t *testing.T, dir string) *server {
 	t.Helper()
 	s := &server{addr: freeAddr(t), exited: make(chan struct{})}
-	s.cmd = exec.Command(serverBin, "-addr", s.addr, "-engine", "wal", "-data-dir", dir)
+	s.cmd = exec.Command(serverBin, "-addr", s.addr, "-engine", "wal", "-data-dir", dir,
+		"-snapshot-threshold", fmt.Sprint(*snapThreshold))
 	s.cmd.Stdout, s.cmd.Stderr = s, s
 	if err := s.cmd.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
