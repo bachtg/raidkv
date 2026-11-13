@@ -34,6 +34,7 @@ type walEngine struct {
 	walSize int64
 
 	snapshotThreshold int64
+	snapshotSize      int64
 	snapshotting      bool
 }
 
@@ -113,6 +114,7 @@ func (e *walEngine) loadDataFromFile(fileName string) error {
 	}
 
 	if isSnapshot {
+		e.snapshotSize = offset
 		return file.Close()
 	}
 
@@ -309,10 +311,7 @@ func (e *walEngine) Put(key, value []byte) error {
 
 	e.walSize += int64(len(encodedRecord))
 
-	if e.walSize >= e.snapshotThreshold && !e.snapshotting {
-		e.snapshotting = true
-		go e.snapshot()
-	}
+	e.maybeSnapshot()
 
 	return nil
 }
@@ -367,10 +366,7 @@ func (e *walEngine) Delete(key []byte) error {
 
 	e.walSize += int64(len(encodedRecord))
 
-	if e.walSize >= e.snapshotThreshold && !e.snapshotting {
-		e.snapshotting = true
-		go e.snapshot()
-	}
+	e.maybeSnapshot()
 
 	return nil
 }

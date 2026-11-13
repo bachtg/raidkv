@@ -10,6 +10,15 @@ import (
 
 const snapshotTempFileName = "snapshot.tmp.log"
 
+// maybeSnapshot starts a snapshot once the wal outgrows the last one. Hold e.mu.
+func (e *walEngine) maybeSnapshot() {
+	trigger := max(e.snapshotThreshold, e.snapshotSize)
+	if e.walSize >= trigger && !e.snapshotting {
+		e.snapshotting = true
+		go e.snapshot()
+	}
+}
+
 func (e *walEngine) snapshot() (err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -81,6 +90,7 @@ func (e *walEngine) snapshot() (err error) {
 	}
 
 	e.walSize = 0
+	e.snapshotSize = dataSize
 
 	return nil
 }

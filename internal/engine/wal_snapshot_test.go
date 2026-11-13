@@ -3,9 +3,11 @@ package engine
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // noSnapshot keeps the trigger out of the way; these tests call snapshot().
@@ -208,6 +210,99 @@ func TestWALSizeMatchesFile(t *testing.T) {
 	check("after writes")
 	mustSnapshot(t, e)
 	check("after snapshot")
+}
+
+func TestSnapshotSizeSurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	e := openEngine(t, dir)
+	if e.snapshotSize != 0 {
+		t.Fatalf("no snapshot yet: snapshotSize = %d, want 0", e.snapshotSize)
+	}
+	mustPut(t, e, "a", "1")
+	mustPut(t, e, "b", "2")
+	mustSnapshot(t, e)
+	afterSnapshot := e.snapshotSize
+	e.Close()
+
+	e = openEngine(t, dir)
+	defer e.Close()
+	if afterSnapshot == 0 || e.snapshotSize != afterSnapshot {
+		t.Fatalf("snapshotSize = %d after snapshot, %d after reopen; want equal and > 0",
+			afterSnapshot, e.snapshotSize)
+	}
+}
+
+// Once the data outgrows the threshold, the wal must reach the snapshot's
+// size before the next snapshot, so snapshot cost stays proportional to writes.
+func TestTriggerFollowsSnapshotSize(t *testing.T) {
+	const threshold = 64
+	dir := t.TempDir()
+	eng, err := NewWALEngine(dir, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := eng.(*walEngine)
+	defer e.Close()
+
+	// 20 distinct keys: far more data than the threshold.
+	for i := range 20 {
+		mustPut(t, e, fmt.Sprintf("key%02d", i), "value")
+	}
+	waitIdle(t, e)
+	e.mu.Lock()
+	size := e.snapshotSize
+	e.mu.Unlock()
+	if size <= threshold {
+		t.Fatalf("snapshotSize = %d, want more than the threshold %d", size, threshold)
+	}
+
+	// Overwrites keep the data size fixed. Stay below the snapshot size.
+	rec := int64(len(encodeRecord(operationPut, []byte("key00"), []byte("value"))))
+	e.mu.Lock()
+	start := e.walSize
+	e.mu.Unlock()
+	n := (size - start) / rec
+	if (size-start)%rec == 0 {
+		n--
+	}
+	for i := range n {
+		mustPut(t, e, fmt.Sprintf("key%02d", i%20), "value")
+	}
+	waitIdle(t, e)
+	e.mu.Lock()
+	got := e.walSize
+	e.mu.Unlock()
+	if want := start + n*rec; got != want {
+		t.Fatalf("walSize = %d, want %d: a snapshot ran before the wal reached the snapshot size %d", got, want, size)
+	}
+
+	// One more record crosses it.
+	mustPut(t, e, "key00", "value")
+	waitIdle(t, e)
+	e.mu.Lock()
+	got = e.walSize
+	e.mu.Unlock()
+	if got != 0 {
+		t.Fatalf("walSize = %d after crossing the snapshot size %d, want 0", got, size)
+	}
+}
+
+// waitIdle waits until no snapshot is pending or running.
+func waitIdle(t *testing.T, e *walEngine) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		e.mu.Lock()
+		busy := e.snapshotting
+		e.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("snapshot still running after 5s")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestThresholdMustBePositive(t *testing.T) {
