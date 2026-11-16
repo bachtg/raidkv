@@ -36,14 +36,24 @@ func (e *walEngine) append(op byte, key, value []byte) error {
 
 	e.walSize += int64(len(encodedRecord))
 
-	e.pendingRecords = append(e.pendingRecords, pendingRecord{
-		op:     op,
-		key:    string(key),
-		value:  clonedValue,
-		offset: currentOffset,
-	})
+	switch e.syncMode {
+	case SyncPeriodic:
+		e.apply(op, string(key), clonedValue)
+	case SyncGroup:
+		e.pendingRecords = append(e.pendingRecords, pendingRecord{
+			op:     op,
+			key:    string(key),
+			value:  clonedValue,
+			offset: currentOffset,
+		})
 
-	e.waitDurable(currentOffset)
+		e.waitDurable(currentOffset)
+	case SyncAlways:
+		if err := e.file.Sync(); err != nil {
+			panic(fmt.Sprintf("wal: fsync failed, cannot guarantee durability: %v", err))
+		}
+		e.apply(op, string(key), clonedValue)
+	}
 
 	e.maybeSnapshot()
 

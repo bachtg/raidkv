@@ -30,6 +30,7 @@ var (
 	baseDir       = flag.String("dir", "", "parent of the data dir; use a real disk, not tmpfs (default: a temp dir)")
 	seed          = flag.Int64("seed", 0, "random seed (default: time based)")
 	snapThreshold = flag.Int64("snapshot-threshold", 4096, "server -snapshot-threshold; small so kills hit snapshots")
+	syncMode      = flag.String("sync", "group", "server -sync; kill -9 keeps the page cache, so this cannot catch a missing fsync")
 )
 
 var serverBin string
@@ -281,7 +282,7 @@ func startServer(t *testing.T, dir string) *server {
 	t.Helper()
 	s := &server{addr: freeAddr(t), exited: make(chan struct{})}
 	s.cmd = exec.Command(serverBin, "-addr", s.addr, "-engine", "wal", "-data-dir", dir,
-		"-snapshot-threshold", fmt.Sprint(*snapThreshold))
+		"-snapshot-threshold", fmt.Sprint(*snapThreshold), "-sync", *syncMode)
 	s.cmd.Stdout, s.cmd.Stderr = s, s
 	if err := s.cmd.Start(); err != nil {
 		t.Fatalf("start server: %v", err)

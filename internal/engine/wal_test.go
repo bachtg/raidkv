@@ -21,7 +21,7 @@ func TestWALEngine(t *testing.T) {
 // The whole conformance suite again, with a snapshot every few writes.
 func TestWALEngineWithSnapshots(t *testing.T) {
 	enginetest.Run(t, func(t *testing.T) engine.Engine {
-		e, err := engine.NewWALEngine(t.TempDir(), 64)
+		e, err := engine.NewWALEngine(t.TempDir(), engine.Options{SnapshotThreshold: 64})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -29,9 +29,25 @@ func TestWALEngineWithSnapshots(t *testing.T) {
 	})
 }
 
+func TestWALEngineOtherSyncModes(t *testing.T) {
+	for _, mode := range []engine.SyncMode{engine.SyncAlways, engine.SyncPeriodic} {
+		for _, threshold := range []int64{noSnapshot, 64} {
+			t.Run(fmt.Sprintf("%v/threshold=%d", mode, threshold), func(t *testing.T) {
+				enginetest.Run(t, func(t *testing.T) engine.Engine {
+					e, err := engine.NewWALEngine(t.TempDir(), engine.Options{SnapshotThreshold: threshold, Sync: mode, SyncInterval: time.Millisecond})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return e
+				})
+			})
+		}
+	}
+}
+
 func TestWALSnapshotTrigger(t *testing.T) {
 	dir := t.TempDir()
-	e, err := engine.NewWALEngine(dir, 256)
+	e, err := engine.NewWALEngine(dir, engine.Options{SnapshotThreshold: 256})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +141,7 @@ func TestWALTornLastRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		e, err := engine.NewWALEngine(dir, noSnapshot)
+		e, err := engine.NewWALEngine(dir, engine.Options{SnapshotThreshold: noSnapshot})
 		if err != nil {
 			t.Fatalf("cut %d: reopen: %v", cut, err)
 		}
@@ -134,7 +150,7 @@ func TestWALTornLastRecord(t *testing.T) {
 		put(t, e, "c", "3")
 		closeWAL(t, e)
 
-		e, err = engine.NewWALEngine(dir, noSnapshot)
+		e, err = engine.NewWALEngine(dir, engine.Options{SnapshotThreshold: noSnapshot})
 		if err != nil {
 			t.Fatalf("cut %d: reopen after append: %v", cut, err)
 		}
@@ -174,7 +190,7 @@ func TestWALCorruption(t *testing.T) {
 			dir, bStart, _ := writeAB(t)
 			flipByte(t, walFile(dir), tt.offset(bStart), tt.value)
 
-			e, err := engine.NewWALEngine(dir, noSnapshot)
+			e, err := engine.NewWALEngine(dir, engine.Options{SnapshotThreshold: noSnapshot})
 			if tt.wantFail {
 				if !errors.Is(err, engine.ErrCorruptWAL) {
 					t.Fatalf("NewWALEngine err = %v, want ErrCorruptWAL", err)
@@ -218,7 +234,7 @@ func walFile(dir string) string { return filepath.Join(dir, "wal.log") }
 
 func openWAL(t *testing.T, dir string) engine.Engine {
 	t.Helper()
-	e, err := engine.NewWALEngine(dir, noSnapshot)
+	e, err := engine.NewWALEngine(dir, engine.Options{SnapshotThreshold: noSnapshot})
 	if err != nil {
 		t.Fatalf("NewWALEngine: %v", err)
 	}

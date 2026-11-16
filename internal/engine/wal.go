@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const (
@@ -37,6 +38,9 @@ type walEngine struct {
 	snapshotSize      int64
 	snapshotting      bool
 
+	syncMode     SyncMode
+	syncInterval time.Duration
+
 	// Bytes written to and fsynced in the wal since open; not file offsets,
 	// as a snapshot truncates the file but not these.
 	written   int64
@@ -45,6 +49,9 @@ type walEngine struct {
 	syncCond  *sync.Cond
 
 	pendingRecords []pendingRecord
+
+	periodicStop chan struct{}
+	periodicDone chan struct{}
 }
 
 type pendingRecord struct {
@@ -59,22 +66,26 @@ const (
 	snapshotFileName = "snapshot.log"
 )
 
-// NewWALEngine opens the engine in dir and snapshots once wal.log reaches
-// snapshotThreshold bytes.
-func NewWALEngine(dir string, snapshotThreshold int64) (Engine, error) {
-	if snapshotThreshold <= 0 {
-		return nil, fmt.Errorf("%w: snapshot threshold must be positive, got %d", ErrInvalidArgument, snapshotThreshold)
+// NewWALEngine opens the engine in dir.
+func NewWALEngine(dir string, opts Options) (Engine, error) {
+	opts, err := opts.withDefaults()
+	if err != nil {
+		return nil, err
 	}
 
 	engine := &walEngine{
 		dir:               dir,
 		storage:           make(map[string][]byte),
-		snapshotThreshold: snapshotThreshold,
+		snapshotThreshold: opts.SnapshotThreshold,
+		syncMode:          opts.Sync,
+		syncInterval:      opts.SyncInterval,
+		periodicStop:      make(chan struct{}),
+		periodicDone:      make(chan struct{}),
 	}
 	engine.syncCond = sync.NewCond(&engine.mu)
 
 	// Left by a snapshot that never reached the rename.
-	err := os.Remove(filepath.Join(dir, snapshotTempFileName))
+	err = os.Remove(filepath.Join(dir, snapshotTempFileName))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -87,6 +98,10 @@ func NewWALEngine(dir string, snapshotThreshold int64) (Engine, error) {
 	err = engine.loadDataFromFile(walFileName)
 	if err != nil {
 		return nil, err
+	}
+
+	if engine.syncMode == SyncPeriodic {
+		go engine.syncLoop()
 	}
 
 	return engine, nil
@@ -369,15 +384,23 @@ func (e *walEngine) Delete(key []byte) error {
 
 // Close waits for any Put or Delete in progress, so a request still running
 // during shutdown gets ErrClosed instead of writing to a closed file, then
-// fsyncs what is left.
+// stops the sync loop and fsyncs what is left.
 func (e *walEngine) Close() error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.closed {
+		e.mu.Unlock()
 		return nil
 	}
 	e.closed = true
+	e.mu.Unlock()
 
+	if e.syncMode == SyncPeriodic {
+		close(e.periodicStop)
+		<-e.periodicDone
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.waitDurable(e.written)
 
 	return e.file.Close()

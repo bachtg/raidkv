@@ -119,7 +119,7 @@ func TestCorruptSnapshotFailsOpen(t *testing.T) {
 			}
 			sizeBefore := sizeOf(t, path)
 
-			if _, err := NewWALEngine(dir, noSnapshot); !errors.Is(err, ErrCorruptWAL) {
+			if _, err := NewWALEngine(dir, Options{SnapshotThreshold: noSnapshot}); !errors.Is(err, ErrCorruptWAL) {
 				t.Fatalf("NewWALEngine err = %v, want ErrCorruptWAL", err)
 			}
 			if got := sizeOf(t, path); got != sizeBefore {
@@ -162,7 +162,7 @@ func TestEndRecordInWALFailsOpen(t *testing.T) {
 	}
 	f.Close()
 
-	if _, err := NewWALEngine(dir, noSnapshot); !errors.Is(err, ErrCorruptWAL) {
+	if _, err := NewWALEngine(dir, Options{SnapshotThreshold: noSnapshot}); !errors.Is(err, ErrCorruptWAL) {
 		t.Fatalf("NewWALEngine err = %v, want ErrCorruptWAL", err)
 	}
 }
@@ -237,7 +237,7 @@ func TestSnapshotSizeSurvivesReopen(t *testing.T) {
 func TestTriggerFollowsSnapshotSize(t *testing.T) {
 	const threshold = 64
 	dir := t.TempDir()
-	eng, err := NewWALEngine(dir, threshold)
+	eng, err := NewWALEngine(dir, Options{SnapshotThreshold: threshold})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,17 +305,9 @@ func waitIdle(t *testing.T, e *walEngine) {
 	}
 }
 
-func TestThresholdMustBePositive(t *testing.T) {
-	for _, threshold := range []int64{0, -1} {
-		if _, err := NewWALEngine(t.TempDir(), threshold); !errors.Is(err, ErrInvalidArgument) {
-			t.Fatalf("threshold %d: err = %v, want ErrInvalidArgument", threshold, err)
-		}
-	}
-}
-
 func openEngine(t *testing.T, dir string) *walEngine {
 	t.Helper()
-	e, err := NewWALEngine(dir, noSnapshot)
+	e, err := NewWALEngine(dir, Options{SnapshotThreshold: noSnapshot})
 	if err != nil {
 		t.Fatalf("NewWALEngine: %v", err)
 	}

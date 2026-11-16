@@ -11,106 +11,116 @@ import (
 // Writers race with snapshots that fire every few records. Every acked
 // write must survive a reopen.
 func TestConcurrentWritesWithSnapshots(t *testing.T) {
-	dir := t.TempDir()
-	e, err := NewWALEngine(dir, 256)
-	if err != nil {
-		t.Fatal(err)
-	}
+	forEachMode(t, func(t *testing.T, mode SyncMode) {
+		dir := t.TempDir()
+		e, err := NewWALEngine(dir, Options{SnapshotThreshold: 256, Sync: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	const writers, ops = 8, 300
-	want := make([]map[string]string, writers)
-	var wg sync.WaitGroup
-	for w := range writers {
-		want[w] = map[string]string{}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := range ops {
-				k := fmt.Sprintf("w%d-k%d", w, i%10)
-				if i%3 == 2 {
-					if err := e.Delete([]byte(k)); err != nil {
-						t.Errorf("Delete(%s): %v", k, err)
+		const writers, ops = 8, 300
+		want := make([]map[string]string, writers)
+		var wg sync.WaitGroup
+		for w := range writers {
+			want[w] = map[string]string{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := range ops {
+					k := fmt.Sprintf("w%d-k%d", w, i%10)
+					if i%3 == 2 {
+						if err := e.Delete([]byte(k)); err != nil {
+							t.Errorf("Delete(%s): %v", k, err)
+							return
+						}
+						delete(want[w], k)
+						continue
+					}
+					v := fmt.Sprintf("v%d", i)
+					if err := e.Put([]byte(k), []byte(v)); err != nil {
+						t.Errorf("Put(%s): %v", k, err)
 						return
 					}
-					delete(want[w], k)
-					continue
+					want[w][k] = v
 				}
-				v := fmt.Sprintf("v%d", i)
-				if err := e.Put([]byte(k), []byte(v)); err != nil {
-					t.Errorf("Put(%s): %v", k, err)
-					return
-				}
-				want[w][k] = v
-			}
-		}()
-	}
-	wg.Wait()
-
-	all := map[string]string{}
-	for _, m := range want {
-		for k, v := range m {
-			all[k] = v
+			}()
 		}
-	}
-	wantStore(t, e.(*walEngine), all)
-	if err := e.Close(); err != nil {
-		t.Fatal(err)
-	}
+		wg.Wait()
 
-	e2 := openEngine(t, dir)
-	defer e2.Close()
-	wantStore(t, e2, all)
+		all := map[string]string{}
+		for _, m := range want {
+			for k, v := range m {
+				all[k] = v
+			}
+		}
+		wantStore(t, e.(*walEngine), all)
+		if err := e.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		e2 := openEngine(t, dir)
+		defer e2.Close()
+		wantStore(t, e2, all)
+	})
+}
+
+func forEachMode(t *testing.T, test func(*testing.T, SyncMode)) {
+	for _, m := range []SyncMode{SyncGroup, SyncAlways, SyncPeriodic} {
+		t.Run(m.String(), func(t *testing.T) { test(t, m) })
+	}
 }
 
 // Close while writers are still waiting for fsync: no panic, and every
 // write that returned nil is on disk.
 func TestCloseDuringWrites(t *testing.T) {
-	for round := range 20 {
-		dir := t.TempDir()
-		e, err := NewWALEngine(dir, 512)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		const writers = 8
-		acked := make([]map[string]string, writers)
-		var wg sync.WaitGroup
-		for w := range writers {
-			acked[w] = map[string]string{}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := 0; ; i++ {
-					k, v := fmt.Sprintf("w%d-k%d", w, i%5), fmt.Sprintf("v%d", i)
-					err := e.Put([]byte(k), []byte(v))
-					if errors.Is(err, ErrClosed) {
-						return
-					}
-					if err != nil {
-						t.Errorf("Put(%s): %v", k, err)
-						return
-					}
-					acked[w][k] = v
-				}
-			}()
-		}
-
-		time.Sleep(time.Duration(5+round) * time.Millisecond)
-		if err := e.Close(); err != nil {
-			t.Fatal(err)
-		}
-		wg.Wait()
-
-		all := map[string]string{}
-		for _, m := range acked {
-			for k, v := range m {
-				all[k] = v
+	forEachMode(t, func(t *testing.T, mode SyncMode) {
+		for round := range 20 {
+			dir := t.TempDir()
+			e, err := NewWALEngine(dir, Options{SnapshotThreshold: 512, Sync: mode, SyncInterval: time.Millisecond})
+			if err != nil {
+				t.Fatal(err)
 			}
+
+			const writers = 8
+			acked := make([]map[string]string, writers)
+			var wg sync.WaitGroup
+			for w := range writers {
+				acked[w] = map[string]string{}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for i := 0; ; i++ {
+						k, v := fmt.Sprintf("w%d-k%d", w, i%5), fmt.Sprintf("v%d", i)
+						err := e.Put([]byte(k), []byte(v))
+						if errors.Is(err, ErrClosed) {
+							return
+						}
+						if err != nil {
+							t.Errorf("Put(%s): %v", k, err)
+							return
+						}
+						acked[w][k] = v
+					}
+				}()
+			}
+
+			time.Sleep(time.Duration(5+round) * time.Millisecond)
+			if err := e.Close(); err != nil {
+				t.Fatal(err)
+			}
+			wg.Wait()
+
+			all := map[string]string{}
+			for _, m := range acked {
+				for k, v := range m {
+					all[k] = v
+				}
+			}
+			e2 := openEngine(t, dir)
+			wantStore(t, e2, all)
+			e2.Close()
 		}
-		e2 := openEngine(t, dir)
-		wantStore(t, e2, all)
-		e2.Close()
-	}
+	})
 }
 
 // After the writers are done nothing is left half way: all written bytes are

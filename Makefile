@@ -10,9 +10,10 @@ test:
 
 # kill -9 the wal server at random moments and check no acked write is lost
 ROUNDS ?= 50
+SYNC ?= group
 CRASH_DIR ?= $(HOME)/.cache/raidkv-crashtest
 crash-test:
-	go test -tags crash -count=1 -timeout 0 -v ./test/crash -rounds=$(ROUNDS) -dir=$(CRASH_DIR)
+	go test -tags crash -count=1 -timeout 0 -v ./test/crash -rounds=$(ROUNDS) -dir=$(CRASH_DIR) -sync=$(SYNC)
 
 # Regenerate Go code from api/**/*.proto
 proto:
