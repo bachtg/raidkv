@@ -25,11 +25,19 @@ func (e *walEngine) snapshot() (err error) {
 
 	defer func() {
 		e.snapshotting = false
+		e.syncCond.Broadcast()
 		if err != nil {
 			// walSize is only reset on success, so the next write retries.
 			slog.Error("wal: snapshot failed, will retry on a later write", "dir", e.dir, "err", err)
 		}
 	}()
+
+	if e.closed {
+		return nil
+	}
+
+	// Pending writes are not in the map yet; truncating now would lose them.
+	e.waitDurable(e.written)
 
 	if e.closed {
 		return nil

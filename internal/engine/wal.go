@@ -36,6 +36,22 @@ type walEngine struct {
 	snapshotThreshold int64
 	snapshotSize      int64
 	snapshotting      bool
+
+	// Bytes written to and fsynced in the wal since open; not file offsets,
+	// as a snapshot truncates the file but not these.
+	written   int64
+	synced    int64
+	isSyncing bool
+	syncCond  *sync.Cond
+
+	pendingRecords []pendingRecord
+}
+
+type pendingRecord struct {
+	op     byte
+	key    string
+	value  []byte
+	offset int64
 }
 
 const (
@@ -55,6 +71,7 @@ func NewWALEngine(dir string, snapshotThreshold int64) (Engine, error) {
 		storage:           make(map[string][]byte),
 		snapshotThreshold: snapshotThreshold,
 	}
+	engine.syncCond = sync.NewCond(&engine.mu)
 
 	// Left by a snapshot that never reached the rename.
 	err := os.Remove(filepath.Join(dir, snapshotTempFileName))
@@ -281,39 +298,45 @@ func (e *walEngine) Get(key []byte) ([]byte, error) {
 	return bytes.Clone(value), nil
 }
 
-// append log into file
 func (e *walEngine) Put(key, value []byte) error {
-	if err := validate(key, value); err != nil {
-		return err
+	return e.append(operationPut, key, value)
+}
+
+// waitDurable returns once the wal is fsynced up to end. Hold e.mu; it is
+// released during the fsync.
+func (e *walEngine) waitDurable(end int64) {
+	for e.synced < end {
+		if !e.isSyncing {
+			e.isSyncing = true
+
+			bytesAlreadyWrittenNow := e.written
+
+			e.mu.Unlock()
+
+			if err := e.file.Sync(); err != nil {
+				panic(fmt.Sprintf("wal: fsync failed, cannot guarantee durability: %v", err))
+			}
+
+			e.mu.Lock()
+
+			applied := 0
+			for _, record := range e.pendingRecords {
+				if record.offset > bytesAlreadyWrittenNow {
+					break
+				}
+				e.apply(record.op, record.key, record.value)
+				applied++
+			}
+			e.pendingRecords = e.pendingRecords[applied:]
+
+			e.isSyncing = false
+			e.synced = bytesAlreadyWrittenNow
+
+			e.syncCond.Broadcast()
+		} else {
+			e.syncCond.Wait()
+		}
 	}
-
-	var (
-		encodedRecord = encodeRecord(operationPut, key, value)
-		clonedValue   = bytes.Clone(value)
-	)
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.closed {
-		return ErrClosed
-	}
-
-	_, err := e.file.Write(encodedRecord)
-	if err != nil {
-		panic(fmt.Sprintf("wal: write failed, log may hold a partial record: %v", err))
-	}
-
-	if err := e.file.Sync(); err != nil {
-		panic(fmt.Sprintf("wal: fsync failed, cannot guarantee durability: %v", err))
-	}
-
-	e.storage[string(key)] = clonedValue
-
-	e.walSize += int64(len(encodedRecord))
-
-	e.maybeSnapshot()
-
-	return nil
 }
 
 func encodeRecord(op byte, key, value []byte) []byte {
@@ -341,38 +364,12 @@ func encodeRecord(op byte, key, value []byte) []byte {
 }
 
 func (e *walEngine) Delete(key []byte) error {
-	if err := validate(key, nil); err != nil {
-		return err
-	}
-
-	encodedRecord := encodeRecord(operationDel, key, nil)
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.closed {
-		return ErrClosed
-	}
-
-	_, err := e.file.Write(encodedRecord)
-	if err != nil {
-		panic(fmt.Sprintf("wal: write failed, log may hold a partial record: %v", err))
-	}
-
-	if err := e.file.Sync(); err != nil {
-		panic(fmt.Sprintf("wal: fsync failed, cannot guarantee durability: %v", err))
-	}
-
-	delete(e.storage, string(key))
-
-	e.walSize += int64(len(encodedRecord))
-
-	e.maybeSnapshot()
-
-	return nil
+	return e.append(operationDel, key, nil)
 }
 
 // Close waits for any Put or Delete in progress, so a request still running
-// during shutdown gets ErrClosed instead of writing to a closed file.
+// during shutdown gets ErrClosed instead of writing to a closed file, then
+// fsyncs what is left.
 func (e *walEngine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -380,5 +377,8 @@ func (e *walEngine) Close() error {
 		return nil
 	}
 	e.closed = true
+
+	e.waitDurable(e.written)
+
 	return e.file.Close()
 }
