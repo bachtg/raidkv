@@ -27,7 +27,7 @@ func TestPeriodicWritesOnceAndAppliesAtOnce(t *testing.T) {
 	var size int64
 	for i := range 50 {
 		k, v := fmt.Sprintf("k%d", i), "v"
-		size += int64(len(encodeRecord(operationPut, []byte(k), []byte(v))))
+		size += int64(len(encodeRecord(0, operationPut, []byte(k), []byte(v))))
 		mustPut(t, e, k, v)
 		if got, err := e.Get([]byte(k)); err != nil || string(got) != v {
 			t.Fatalf("Get(%s) right after Put = %q, %v; want %q", k, got, err, v)

@@ -10,10 +10,7 @@ func (e *walEngine) append(op byte, key, value []byte) error {
 		return err
 	}
 
-	var (
-		encodedRecord = encodeRecord(op, key, value)
-		clonedValue   = bytes.Clone(value)
-	)
+	clonedValue := bytes.Clone(value)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -25,6 +22,9 @@ func (e *walEngine) append(op byte, key, value []byte) error {
 	if e.closed {
 		return ErrClosed
 	}
+
+	e.sequenceNumber++
+	encodedRecord := encodeRecord(e.sequenceNumber, op, key, value)
 
 	_, err := e.file.Write(encodedRecord)
 	if err != nil {

@@ -48,7 +48,7 @@ func TestSnapshotOverwritesLeftoverTmp(t *testing.T) {
 	e := openEngine(t, dir)
 	mustPut(t, e, "a", "1")
 
-	zombie := encodeRecord(operationPut, []byte("zombie"), []byte("z"))
+	zombie := encodeRecord(0, operationPut, []byte("zombie"), []byte("z"))
 	if err := os.WriteFile(filepath.Join(dir, snapshotTempFileName), zombie, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -77,9 +77,9 @@ func TestOpenRemovesLeftoverTmp(t *testing.T) {
 
 // A damaged snapshot means lost acked writes: fail, never trim.
 func TestCorruptSnapshotFailsOpen(t *testing.T) {
-	// Snapshot of a=1, b=2: two 15-byte records, then the end record.
-	const recLen = 15
-	endRecLen := len(encodeRecord(operationEnd, nil, make([]byte, 8)))
+	// Snapshot of a=1, b=2: two 23-byte records, then the end record.
+	const recLen = 23
+	endRecLen := len(encodeRecord(0, operationEnd, nil, make([]byte, 8)))
 
 	tests := []struct {
 		name   string
@@ -87,15 +87,15 @@ func TestCorruptSnapshotFailsOpen(t *testing.T) {
 	}{
 		{"cut inside the end record", func(d []byte) []byte { return d[:len(d)-1] }},
 		{"bad byte in the end record", func(d []byte) []byte { d[len(d)-1] ^= 0xff; return d }},
-		{"bad byte in the first record", func(d []byte) []byte { d[9] ^= 0xff; return d }}, // its key
+		{"bad byte in the first record", func(d []byte) []byte { d[17] ^= 0xff; return d }}, // its key
 		{"end record cut off", func(d []byte) []byte { return d[:len(d)-endRecLen] }},
 		{"end record and last record cut off", func(d []byte) []byte { return d[:len(d)-endRecLen-recLen] }},
 		{"first record missing", func(d []byte) []byte { return d[recLen:] }},
 		{"record after the end record", func(d []byte) []byte {
-			return append(d, encodeRecord(operationPut, []byte("zombie"), []byte("z"))...)
+			return append(d, encodeRecord(0, operationPut, []byte("zombie"), []byte("z"))...)
 		}},
 		{"end record with a short value", func(d []byte) []byte {
-			return append(d[:len(d)-endRecLen], encodeRecord(operationEnd, nil, []byte{0, 30})...)
+			return append(d[:len(d)-endRecLen], encodeRecord(0, operationEnd, nil, []byte{0, 30})...)
 		}},
 		{"empty file", func([]byte) []byte { return nil }},
 	}
@@ -156,7 +156,7 @@ func TestEndRecordInWALFailsOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Well-formed, so only its place is wrong.
-	end := encodeRecord(operationEnd, nil, binary.BigEndian.AppendUint64(nil, uint64(sizeOf(t, wal))))
+	end := encodeRecord(0, operationEnd, nil, binary.BigEndian.AppendUint64(nil, uint64(sizeOf(t, wal))))
 	if _, err := f.Write(end); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestTriggerFollowsSnapshotSize(t *testing.T) {
 	}
 
 	// Overwrites keep the data size fixed. Stay below the snapshot size.
-	rec := int64(len(encodeRecord(operationPut, []byte("key00"), []byte("value"))))
+	rec := int64(len(encodeRecord(0, operationPut, []byte("key00"), []byte("value"))))
 	e.mu.Lock()
 	start := e.walSize
 	e.mu.Unlock()

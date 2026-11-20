@@ -161,14 +161,15 @@ func TestWALTornLastRecord(t *testing.T) {
 	}
 }
 
-// Record layout: [crc 4][op 1][key_len 4][key][value_len 4][value].
+// Record layout: [crc 4][seq 8][op 1][key_len 4][key][value_len 4][value].
 func TestWALCorruption(t *testing.T) {
 	const (
 		crcOff      = 0
-		opOff       = 4
-		keyLenOff   = 5
-		keyOff      = 9
-		valueOffKey = 9 + 1 + 4 // value of a 1-byte key
+		seqOff      = 4
+		opOff       = 12
+		keyLenOff   = 13
+		keyOff      = 17
+		valueOffKey = 17 + 1 + 4 // value of a 1-byte key
 	)
 
 	tests := []struct {
@@ -180,6 +181,7 @@ func TestWALCorruption(t *testing.T) {
 		{"middle record value", func(int64) int64 { return valueOffKey }, '9', true},
 		{"middle record key", func(int64) int64 { return keyOff }, 'z', true},
 		{"middle record crc", func(int64) int64 { return crcOff }, 0xff, true},
+		{"middle record seq", func(int64) int64 { return seqOff + 7 }, 0x42, true},
 		{"middle record key_len", func(int64) int64 { return keyLenOff }, 0x7f, true},
 		{"last record op", func(b int64) int64 { return b + opOff }, 0x09, false},
 		{"last record value", func(b int64) int64 { return b + valueOffKey }, '9', false},

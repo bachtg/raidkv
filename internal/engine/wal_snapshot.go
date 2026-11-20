@@ -59,8 +59,9 @@ func (e *walEngine) snapshot() (err error) {
 	// load data from map to snapshot file
 	dataSize := int64(0)
 
+	// Only the end record carries a seq: the last one the snapshot covers.
 	for key, value := range e.storage {
-		encodedRecord := encodeRecord(operationPut, []byte(key), value)
+		encodedRecord := encodeRecord(0, operationPut, []byte(key), value)
 		dataSize += int64(len(encodedRecord))
 		_, err = file.Write(encodedRecord)
 		if err != nil {
@@ -69,7 +70,7 @@ func (e *walEngine) snapshot() (err error) {
 	}
 
 	temp := make([]byte, 0, 8)
-	_, err = file.Write(encodeRecord(operationEnd, nil, binary.BigEndian.AppendUint64(temp, uint64(dataSize))))
+	_, err = file.Write(encodeRecord(e.sequenceNumber, operationEnd, nil, binary.BigEndian.AppendUint64(temp, uint64(dataSize))))
 	if err != nil {
 		return err
 	}
