@@ -52,6 +52,7 @@ func (e *walEngine) append(op byte, key, value []byte) error {
 		if err := e.file.Sync(); err != nil {
 			panic(fmt.Sprintf("wal: fsync failed, cannot guarantee durability: %v", err))
 		}
+		e.syncedSeq = e.sequenceNumber
 		e.apply(op, string(key), clonedValue)
 	}
 

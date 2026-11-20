@@ -93,12 +93,14 @@ func (e *walEngine) snapshot() (err error) {
 	if err != nil {
 		return err
 	}
+	e.walGeneration++
 
 	if err := e.file.Sync(); err != nil {
 		panic(fmt.Sprintf("wal: fsync after truncate failed, cannot tell what is on disk: %v", err))
 	}
 
 	e.walSize = 0
+	e.snapshotSeq = e.sequenceNumber
 	e.snapshotSize = dataSize
 
 	return nil

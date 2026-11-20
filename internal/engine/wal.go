@@ -55,6 +55,12 @@ type walEngine struct {
 
 	// Highest seq issued.
 	sequenceNumber int64
+	// Highest seq in the snapshot, and highest seq fsynced in the wal.
+	snapshotSeq int64
+	syncedSeq   int64
+	// Bumped each time a snapshot truncates the wal, so ReadFrom can tell
+	// that the file changed under it.
+	walGeneration int64
 }
 
 type pendingRecord struct {
@@ -149,9 +155,11 @@ func (e *walEngine) loadDataFromFile(fileName string) error {
 	}
 
 	e.sequenceNumber = max(e.sequenceNumber, sequenceNumber)
+	e.syncedSeq = e.sequenceNumber
 
 	if isSnapshot {
 		e.snapshotSize = offset
+		e.snapshotSeq = sequenceNumber
 		return file.Close()
 	}
 
@@ -344,6 +352,7 @@ func (e *walEngine) waitDurable(end int64) {
 			e.isSyncing = true
 
 			bytesAlreadyWrittenNow := e.written
+			syncedSeq := e.sequenceNumber
 
 			e.mu.Unlock()
 
@@ -365,6 +374,7 @@ func (e *walEngine) waitDurable(end int64) {
 
 			e.isSyncing = false
 			e.synced = bytesAlreadyWrittenNow
+			e.syncedSeq = max(e.syncedSeq, syncedSeq)
 
 			e.syncCond.Broadcast()
 		} else {
