@@ -278,6 +278,170 @@ func (*DeleteResponse) Descriptor() ([]byte, []int) {
 	return file_raidkv_v1_raidkv_proto_rawDescGZIP(), []int{5}
 }
 
+type ReadWALRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	From          int64                  `protobuf:"varint,1,opt,name=from,proto3" json:"from,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadWALRequest) Reset() {
+	*x = ReadWALRequest{}
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadWALRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadWALRequest) ProtoMessage() {}
+
+func (x *ReadWALRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadWALRequest.ProtoReflect.Descriptor instead.
+func (*ReadWALRequest) Descriptor() ([]byte, []int) {
+	return file_raidkv_v1_raidkv_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ReadWALRequest) GetFrom() int64 {
+	if x != nil {
+		return x.From
+	}
+	return 0
+}
+
+func (x *ReadWALRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ReadWALResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*WALRecord           `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadWALResponse) Reset() {
+	*x = ReadWALResponse{}
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadWALResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadWALResponse) ProtoMessage() {}
+
+func (x *ReadWALResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadWALResponse.ProtoReflect.Descriptor instead.
+func (*ReadWALResponse) Descriptor() ([]byte, []int) {
+	return file_raidkv_v1_raidkv_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ReadWALResponse) GetRecords() []*WALRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+type WALRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Seq           int64                  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	Delete        bool                   `protobuf:"varint,2,opt,name=delete,proto3" json:"delete,omitempty"`
+	Key           []byte                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WALRecord) Reset() {
+	*x = WALRecord{}
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WALRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WALRecord) ProtoMessage() {}
+
+func (x *WALRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_raidkv_v1_raidkv_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WALRecord.ProtoReflect.Descriptor instead.
+func (*WALRecord) Descriptor() ([]byte, []int) {
+	return file_raidkv_v1_raidkv_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *WALRecord) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *WALRecord) GetDelete() bool {
+	if x != nil {
+		return x.Delete
+	}
+	return false
+}
+
+func (x *WALRecord) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *WALRecord) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
 var File_raidkv_v1_raidkv_proto protoreflect.FileDescriptor
 
 const file_raidkv_v1_raidkv_proto_rawDesc = "" +
@@ -298,11 +462,24 @@ const file_raidkv_v1_raidkv_proto_rawDesc = "" +
 	"\rDeleteRequest\x12\x1c\n" +
 	"\x03key\x18\x01 \x01(\fB\n" +
 	"\xbaH\az\x05\x10\x01\x18\x90NR\x03key\"\x10\n" +
-	"\x0eDeleteResponse2\xb6\x01\n" +
+	"\x0eDeleteResponse\"O\n" +
+	"\x0eReadWALRequest\x12\x1b\n" +
+	"\x04from\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x04from\x12 \n" +
+	"\x05limit\x18\x02 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\x90N \x00R\x05limit\"A\n" +
+	"\x0fReadWALResponse\x12.\n" +
+	"\arecords\x18\x01 \x03(\v2\x14.raidkv.v1.WALRecordR\arecords\"]\n" +
+	"\tWALRecord\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x16\n" +
+	"\x06delete\x18\x02 \x01(\bR\x06delete\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\fR\x03key\x12\x14\n" +
+	"\x05value\x18\x04 \x01(\fR\x05value2\xb6\x01\n" +
 	"\tKVService\x124\n" +
 	"\x03Get\x12\x15.raidkv.v1.GetRequest\x1a\x16.raidkv.v1.GetResponse\x124\n" +
 	"\x03Put\x12\x15.raidkv.v1.PutRequest\x1a\x16.raidkv.v1.PutResponse\x12=\n" +
-	"\x06Delete\x12\x18.raidkv.v1.DeleteRequest\x1a\x19.raidkv.v1.DeleteResponseB1Z/github.com/bachtg/raidkv/api/raidkv/v1;raidkvv1b\x06proto3"
+	"\x06Delete\x12\x18.raidkv.v1.DeleteRequest\x1a\x19.raidkv.v1.DeleteResponse2V\n" +
+	"\x12ReplicationService\x12@\n" +
+	"\aReadWAL\x12\x19.raidkv.v1.ReadWALRequest\x1a\x1a.raidkv.v1.ReadWALResponseB1Z/github.com/bachtg/raidkv/api/raidkv/v1;raidkvv1b\x06proto3"
 
 var (
 	file_raidkv_v1_raidkv_proto_rawDescOnce sync.Once
@@ -316,27 +493,33 @@ func file_raidkv_v1_raidkv_proto_rawDescGZIP() []byte {
 	return file_raidkv_v1_raidkv_proto_rawDescData
 }
 
-var file_raidkv_v1_raidkv_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_raidkv_v1_raidkv_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_raidkv_v1_raidkv_proto_goTypes = []any{
-	(*GetRequest)(nil),     // 0: raidkv.v1.GetRequest
-	(*GetResponse)(nil),    // 1: raidkv.v1.GetResponse
-	(*PutRequest)(nil),     // 2: raidkv.v1.PutRequest
-	(*PutResponse)(nil),    // 3: raidkv.v1.PutResponse
-	(*DeleteRequest)(nil),  // 4: raidkv.v1.DeleteRequest
-	(*DeleteResponse)(nil), // 5: raidkv.v1.DeleteResponse
+	(*GetRequest)(nil),      // 0: raidkv.v1.GetRequest
+	(*GetResponse)(nil),     // 1: raidkv.v1.GetResponse
+	(*PutRequest)(nil),      // 2: raidkv.v1.PutRequest
+	(*PutResponse)(nil),     // 3: raidkv.v1.PutResponse
+	(*DeleteRequest)(nil),   // 4: raidkv.v1.DeleteRequest
+	(*DeleteResponse)(nil),  // 5: raidkv.v1.DeleteResponse
+	(*ReadWALRequest)(nil),  // 6: raidkv.v1.ReadWALRequest
+	(*ReadWALResponse)(nil), // 7: raidkv.v1.ReadWALResponse
+	(*WALRecord)(nil),       // 8: raidkv.v1.WALRecord
 }
 var file_raidkv_v1_raidkv_proto_depIdxs = []int32{
-	0, // 0: raidkv.v1.KVService.Get:input_type -> raidkv.v1.GetRequest
-	2, // 1: raidkv.v1.KVService.Put:input_type -> raidkv.v1.PutRequest
-	4, // 2: raidkv.v1.KVService.Delete:input_type -> raidkv.v1.DeleteRequest
-	1, // 3: raidkv.v1.KVService.Get:output_type -> raidkv.v1.GetResponse
-	3, // 4: raidkv.v1.KVService.Put:output_type -> raidkv.v1.PutResponse
-	5, // 5: raidkv.v1.KVService.Delete:output_type -> raidkv.v1.DeleteResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	8, // 0: raidkv.v1.ReadWALResponse.records:type_name -> raidkv.v1.WALRecord
+	0, // 1: raidkv.v1.KVService.Get:input_type -> raidkv.v1.GetRequest
+	2, // 2: raidkv.v1.KVService.Put:input_type -> raidkv.v1.PutRequest
+	4, // 3: raidkv.v1.KVService.Delete:input_type -> raidkv.v1.DeleteRequest
+	6, // 4: raidkv.v1.ReplicationService.ReadWAL:input_type -> raidkv.v1.ReadWALRequest
+	1, // 5: raidkv.v1.KVService.Get:output_type -> raidkv.v1.GetResponse
+	3, // 6: raidkv.v1.KVService.Put:output_type -> raidkv.v1.PutResponse
+	5, // 7: raidkv.v1.KVService.Delete:output_type -> raidkv.v1.DeleteResponse
+	7, // 8: raidkv.v1.ReplicationService.ReadWAL:output_type -> raidkv.v1.ReadWALResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_raidkv_v1_raidkv_proto_init() }
@@ -350,9 +533,9 @@ func file_raidkv_v1_raidkv_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_raidkv_v1_raidkv_proto_rawDesc), len(file_raidkv_v1_raidkv_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_raidkv_v1_raidkv_proto_goTypes,
 		DependencyIndexes: file_raidkv_v1_raidkv_proto_depIdxs,

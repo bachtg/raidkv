@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	api "github.com/bachtg/raidkv/api/raidkv/v1"
 	"github.com/bachtg/raidkv/internal/engine"
 )
@@ -11,10 +14,30 @@ import (
 type Server struct {
 	api.UnimplementedKVServiceServer
 	engine engine.Engine
+	// Empty on the primary; on a backup, where writes go.
+	primaryAddr string
 }
 
-func New(e engine.Engine) *Server {
-	return &Server{engine: e}
+type Option func(*Server)
+
+// WithPrimary makes the server a read-only backup of addr.
+func WithPrimary(addr string) Option {
+	return func(s *Server) { s.primaryAddr = addr }
+}
+
+func New(e engine.Engine, opts ...Option) *Server {
+	s := &Server{engine: e}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+func (s *Server) rejectWrite() error {
+	if s.primaryAddr == "" {
+		return nil
+	}
+	return status.Errorf(codes.FailedPrecondition, "not primary: write to %s", s.primaryAddr)
 }
 
 func (s *Server) Get(ctx context.Context, req *api.GetRequest) (*api.GetResponse, error) {
@@ -29,6 +52,9 @@ func (s *Server) Get(ctx context.Context, req *api.GetRequest) (*api.GetResponse
 }
 
 func (s *Server) Put(ctx context.Context, req *api.PutRequest) (*api.PutResponse, error) {
+	if err := s.rejectWrite(); err != nil {
+		return nil, err
+	}
 	err := s.engine.Put(req.GetKey(), req.GetValue())
 	if err != nil {
 		return nil, toStatus(err)
@@ -38,6 +64,9 @@ func (s *Server) Put(ctx context.Context, req *api.PutRequest) (*api.PutResponse
 }
 
 func (s *Server) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
+	if err := s.rejectWrite(); err != nil {
+		return nil, err
+	}
 	err := s.engine.Delete(req.GetKey())
 	if err != nil {
 		return nil, toStatus(err)

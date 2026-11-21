@@ -40,3 +40,20 @@ type Engine interface {
 	Delete(key []byte) error
 	Close() error
 }
+
+// WALReader is what a primary needs to serve its wal to backups.
+type WALReader interface {
+	ReadFrom(from int64, limit int) ([]Record, error)
+}
+
+// Replica is what a backup needs to copy the primary's wal.
+type Replica interface {
+	Engine
+	LastSeq() int64
+	Apply(rec Record) error
+}
+
+var (
+	_ WALReader = (*walEngine)(nil)
+	_ Replica   = (*walEngine)(nil)
+)

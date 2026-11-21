@@ -42,3 +42,28 @@ message DeleteRequest {
 }
 
 message DeleteResponse {}
+
+// ReplicationService lets a backup copy the primary's wal.
+service ReplicationService {
+  // ReadWAL returns fsynced records from seq `from`; OUT_OF_RANGE if a snapshot cut them.
+  rpc ReadWAL(ReadWALRequest) returns (ReadWALResponse);
+}
+
+message ReadWALRequest {
+  int64 from = 1 [(buf.validate.field).int64.gt = 0];
+  int32 limit = 2 [(buf.validate.field).int32 = {
+    gt: 0
+    lte: 10000
+  }];
+}
+
+message ReadWALResponse {
+  repeated WALRecord records = 1;
+}
+
+message WALRecord {
+  int64 seq = 1;
+  bool delete = 2;
+  bytes key = 3;
+  bytes value = 4;
+}

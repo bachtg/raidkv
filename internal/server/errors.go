@@ -16,6 +16,8 @@ func toStatus(err error) error {
 		return status.Error(codes.NotFound, "key not found")
 	case errors.Is(err, engine.ErrClosed):
 		return status.Error(codes.Unavailable, "server is shutting down")
+	case errors.Is(err, engine.ErrTooOld):
+		return status.Error(codes.OutOfRange, err.Error())
 	case errors.Is(err, engine.ErrInvalidArgument):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:

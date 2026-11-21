@@ -11,7 +11,7 @@ import (
 	"github.com/bachtg/raidkv/internal/engine"
 )
 
-func NewGRPCServer(e engine.Engine) (*grpc.Server, error) {
+func NewGRPCServer(e engine.Engine, opts ...Option) (*grpc.Server, error) {
 	validator, err := protovalidate.New()
 	if err != nil {
 		return nil, fmt.Errorf("create validator: %w", err)
@@ -21,7 +21,8 @@ func NewGRPCServer(e engine.Engine) (*grpc.Server, error) {
 		grpc.UnaryInterceptor(pvinterceptor.UnaryServerInterceptor(validator)),
 	)
 
-	api.RegisterKVServiceServer(g, New(e))
+	api.RegisterKVServiceServer(g, New(e, opts...))
+	api.RegisterReplicationServiceServer(g, &replicationServer{engine: e})
 
 	return g, nil
 }
